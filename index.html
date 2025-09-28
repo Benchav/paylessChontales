@@ -24,7 +24,7 @@ input{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);ba
 </style>
 </head>
 <body>
-<div class="card">
+<div class="card" data-role="chontales">
   <div class="brand">
     <div class="logo">PS</div>
     <div>
@@ -33,7 +33,7 @@ input{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);ba
     </div>
   </div>
 
-  <form id="loginForm" autocomplete="on">
+  <form id="loginForm" autocomplete="on" novalidate>
     <div class="form-group">
       <label for="username">Usuario</label>
       <input id="username" name="username" type="text" placeholder="usuario" required />
@@ -47,67 +47,138 @@ input{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.04);ba
       <button type="button" id="demoBtn" class="btn">Usar demo</button>
     </div>
     <div class="muted">¿No tienes cuenta? <a class="link" href="register.html">Regístrate</a></div>
-    <div class="msg" id="msg"></div>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
   </form>
 </div>
 
 <script>
+/* CONFIG */
 const API_BASE = 'https://payless-api.vercel.app';
 const LOGIN_PATH = '/auth/login';
 const STORAGE_AUTH = 'payless_auth_v1';
 
-function showMsg(text, ok){ 
-  const el = document.getElementById('msg'); 
-  el.textContent = text; 
-  el.style.color = ok ? '#9fe6b0' : '#ffb4a2'; 
+/* ROLE (fixed for this page) */
+const EXPECTED_ROLE = (document.querySelector('.card')?.dataset?.role) || 'chontales';
+
+/* UI helpers */
+function showMsg(text, ok = true){
+  const el = document.getElementById('msg');
+  el.textContent = text || '';
+  el.style.color = ok ? '#9fe6b0' : '#ffb4a2';
 }
 
-function setAuthToken(obj){ 
-  localStorage.setItem(STORAGE_AUTH, JSON.stringify(obj)); 
+function setAuthToken(obj){
+  try {
+    localStorage.setItem(STORAGE_AUTH, JSON.stringify(obj));
+  } catch(e) {
+    console.error('No se pudo guardar auth en localStorage', e);
+  }
 }
 
+function setLoading(isLoading){
+  const btn = document.getElementById('submitBtn');
+  const demo = document.getElementById('demoBtn');
+  if(isLoading){
+    btn.disabled = true; demo.disabled = true;
+    btn.classList.add('loading'); demo.classList.add('loading');
+  } else {
+    btn.disabled = false; demo.disabled = false;
+    btn.classList.remove('loading'); demo.classList.remove('loading');
+  }
+}
+
+/* API call */
 async function apiLogin(username, password){
+  const payload = { username, password };
+  if (EXPECTED_ROLE) payload.expectedRole = EXPECTED_ROLE;
+
   const res = await fetch(API_BASE + LOGIN_PATH, {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({ username, password })
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
   });
+
   const data = await res.json().catch(()=>null);
-  if(!res.ok) throw new Error(data?.message || 'Error ' + res.status);
+
+  if (res.status === 403) {
+    const msg = data?.message || 'No tienes permiso para iniciar sesión en este panel';
+    const err = new Error(msg);
+    err.status = 403;
+    throw err;
+  }
+
+  if (!res.ok) {
+    const msg = data?.message || data?.error || ('Error ' + res.status);
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
+  }
+
   return data;
 }
 
-document.getElementById('loginForm').addEventListener('submit', async e=>{
+/* Form submit */
+document.getElementById('loginForm').addEventListener('submit', async function(e){
   e.preventDefault();
+
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
-  if(!username || !password){ showMsg('Completa los campos', false); return; }
 
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true; btn.classList.add('loading');
+  if (!username || !password) {
+    showMsg('Completa los campos', false);
+    return;
+  }
+
+  setLoading(true);
   showMsg('Conectando...', true);
 
-  try{
+  try {
     const result = await apiLogin(username, password);
-    if(!result.token) throw new Error('Token no recibido');
 
-    const user = { username };
-    setAuthToken({ token: result.token, user });
+    // extraer token
+    const token = result?.token || result?.accessToken || result?.access_token || result?.data?.token;
+    if (!token) throw new Error(result?.message || 'Token no recibido');
+
+    // obtener role devuelto
+    const returnedRole = result?.role || result?.data?.role || (result?.user && result.user.role) || null;
+
+    // cliente: verificación UX (el backend ya debería haber bloqueado si mismatch)
+    if (EXPECTED_ROLE && returnedRole && returnedRole !== EXPECTED_ROLE && returnedRole !== 'managua' && returnedRole !== 'admin') {
+      showMsg('Tu cuenta no tiene permiso para este panel.', false);
+      return;
+    }
+
+    const user = {
+      username: result?.user?.username || result?.username || username,
+      role: returnedRole || EXPECTED_ROLE
+    };
+
+    const authObj = {
+      token,
+      user,
+      meta: {
+        expiresIn: result?.expiresIn || result?.expires_in || null,
+        obtainedAt: new Date().toISOString()
+      }
+    };
+
+    setAuthToken(authObj);
     showMsg('Inicio de sesión correcto. Redirigiendo...', true);
 
-    // Redirigir al panel
-    setTimeout(()=> window.location.href='panelChontales.html', 600);
-  }catch(err){
-    console.error(err);
+    // redirigir al panel Chontales
+    setTimeout(()=> window.location.href = 'panelChontales.html', 600);
+  } catch (err) {
+    console.error('login error', err);
     showMsg(err.message || 'Error en login', false);
-  }finally{
-    btn.disabled = false; btn.classList.remove('loading');
+  } finally {
+    setLoading(false);
   }
 });
 
-document.getElementById('demoBtn').addEventListener('click', ()=>{
-  document.getElementById('username').value='adminchontales';
-  document.getElementById('password').value='123456';
+/* Demo quick-fill */
+document.getElementById('demoBtn').addEventListener('click', function(){
+  document.getElementById('username').value = 'adminchontales';
+  document.getElementById('password').value = '123456';
   document.getElementById('loginForm').dispatchEvent(new Event('submit',{cancelable:true,bubbles:true}));
 });
 </script>

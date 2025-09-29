@@ -349,9 +349,9 @@
       max-width: 100%;
       position: relative;
     }
+    /* NOTE: no min-width aquí (desktop adaptará correctamente). Min-width se aplica únicamente en pantallas pequeñas más abajo. */
     .table-scroll table {
       width: 100%;
-      min-width: 760px; /* ajustar según columnas */
       border-collapse: collapse;
       table-layout: auto;
     }
@@ -630,6 +630,39 @@
       
       .table-scroll table { min-width: 620px; } /* ajuste para pantallas muy pequeñas */
     }
+
+    /* === ADICIÓN ÚNICA: reglas para DESKTOP (≥993px) - solo aquí adaptamos la columna derecha === */
+    @media (min-width: 993px) {
+      /* permitir que la columna izquierda se encoja correctamente */
+      .left {
+        flex: 1 1 auto;
+        min-width: 0; /* esencial para que el contenido no obligue al contenedor a crecer y recorte la derecha */
+      }
+      /* ancho fijo razonable para el formulario en desktop (evita que quede recortado) */
+      .right {
+        flex: 0 0 419px;
+        min-width: 0;
+        max-width: 419px;
+      }
+      /* permitir que main no oculte el desbordamiento del formulario en desktop */
+      main {
+        overflow: visible;
+      }
+      /* en desktop la tabla debe intentar adaptarse al espacio disponible y no forzar ancho excesivo */
+      .table-scroll {
+        min-width: 0;
+      }
+      .table-scroll table {
+        min-width: 0;
+        width: 100%;
+        table-layout: fixed; /* evita que la tabla empuje la columna derecha */
+      }
+      .form-container {
+        box-sizing: border-box;
+        max-width: 100%;
+      }
+    }
+    /* === fin adaptación desktop === */
   </style>
 </head>
 <body>
